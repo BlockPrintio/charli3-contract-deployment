@@ -27,6 +27,10 @@ export type BootstrapParams = {
 export async function bootstrapOracle(params: BootstrapParams): Promise<string> {
   const { wallet, meshBuilder, oracleConf, bootstrapUtxo, platformAuthNftUtxo, initialSettings, nftsRefUtxo } = params;
 
+  // complete() never resets builder state — clear any residue from prior calls
+  // (e.g. deployScripts TX2) before building the bootstrap transaction.
+  meshBuilder.reset();
+
   const { changeAddress, walletUtxos, collateral } = await walletConfig(wallet);
   const networkId = await wallet.getNetworkId();
   const scripts = new OracleScripts(networkId);
@@ -41,7 +45,7 @@ export async function bootstrapOracle(params: BootstrapParams): Promise<string> 
   const { policyId } = nfts;
   const lovelace = initialSettings.utxoSizeSafetyBuffer.toString();
 
-  return meshBuilder
+  const txHex = await meshBuilder
     // 1. Consume bootstrapUtxo (binds policy ID)
     .txIn(bootstrapUtxo.input.txHash, bootstrapUtxo.input.outputIndex)
 
@@ -53,17 +57,17 @@ export async function bootstrapOracle(params: BootstrapParams): Promise<string> 
     .mintPlutusScriptV3()
     .mint("1", policyId, TOKEN_NAMES.coreSettings)
     .mintTxInReference(nftsRefUtxo.txHash, nftsRefUtxo.outputIndex)
-    .mintRedeemerValue(MintRedeemer.MintToken(), "JSON")
+    .mintRedeemerValue(MintRedeemer.MintToken(), "Mesh")
 
     .mintPlutusScriptV3()
     .mint("1", policyId, TOKEN_NAMES.rewardAccount)
     .mintTxInReference(nftsRefUtxo.txHash, nftsRefUtxo.outputIndex)
-    .mintRedeemerValue(MintRedeemer.MintToken(), "JSON")
+    .mintRedeemerValue(MintRedeemer.MintToken(), "Mesh")
 
     .mintPlutusScriptV3()
     .mint("1", policyId, TOKEN_NAMES.aggState)
     .mintTxInReference(nftsRefUtxo.txHash, nftsRefUtxo.outputIndex)
-    .mintRedeemerValue(MintRedeemer.MintToken(), "JSON")
+    .mintRedeemerValue(MintRedeemer.MintToken(), "Mesh")
 
     // Output 0: CoreSettings (Mutable configuration)
     .txOut(manager.address, [
@@ -90,4 +94,7 @@ export async function bootstrapOracle(params: BootstrapParams): Promise<string> 
     .selectUtxosFrom(walletUtxos.filter(u => u.input.txHash !== bootstrapUtxo.input.txHash))
     .changeAddress(changeAddress)
     .complete();
+
+  const signedTx = await wallet.signTx(txHex);
+  return wallet.submitTx(signedTx);
 }

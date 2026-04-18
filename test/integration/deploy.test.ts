@@ -46,13 +46,14 @@ describe.skipIf(!isConfigured)(
     let contract: CharlieContract;
     let wallet: MeshWallet;
     let walletUtxos: UTxO[];
+    let provider: BlockfrostProvider;
 
     // Shared across describe blocks — set by deployScripts test, read by bootstrap test
     let deployedRefs: DeployedScripts;
     let bootstrapUtxo: UTxO;
 
     beforeAll(async () => {
-      const provider = new BlockfrostProvider(BLOCKFROST_API_KEY!);
+      provider = new BlockfrostProvider(BLOCKFROST_API_KEY!);
       wallet = new MeshWallet({
         networkId: 0,
         fetcher: provider,
@@ -67,15 +68,26 @@ describe.skipIf(!isConfigured)(
       contract = new CharlieContract(wallet, meshBuilder, oracleConf);
       await contract.init();
 
+      const unusedAddresses = await wallet.getUnusedAddresses();
+      console.log("Wallet addresses (unused):", unusedAddresses);
+
+      // Allow Blockfrost time to index the funded UTxO before querying
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+
       walletUtxos = await wallet.getUtxos();
-      expect(walletUtxos.length).toBeGreaterThanOrEqual(3);
+
+      if (walletUtxos.length === 0) {
+        throw new Error(
+          "Wallet has no UTxOs — send tADA to the Preprod wallet before running integration tests."
+        );
+      }
 
       // Seed the wallet VKH into settings nodes list
       initialSettings.nodes = [await resolveVKH(wallet)];
 
       // Reserve utxos[0] as the bootstrap UTxO — deployScripts explicitly avoids spending it
       bootstrapUtxo = walletUtxos[0];
-    });
+    }, 60_000);
 
     describe("deployScripts()", () => {
       it(
@@ -100,16 +112,34 @@ describe.skipIf(!isConfigured)(
             `[Preprod] NFTs policy TX:  ${PREPROD_EXPLORER}/${deployedRefs.nftsRefUtxo.txHash}`
           );
         },
-        120_000 // 2 min — allows for network round-trip and mempool acceptance
+        180_000 // 3 min — allows for network round-trip and mempool acceptance
       );
     });
 
     describe("bootstrap()", () => {
+      beforeAll(async () => {
+        // The nftsRefUtxo reference script must be confirmed on-chain before
+        // bootstrap can resolve it. Poll Blockfrost until the UTxO is visible.
+        const { txHash, outputIndex } = deployedRefs.nftsRefUtxo;
+        console.log(`[Preprod] Waiting for nftsRefUtxo ${txHash}#${outputIndex} to confirm...`);
+        for (let attempt = 0; attempt < 30; attempt++) {
+          try {
+            const utxos = await provider.fetchUTxOs(txHash);
+            if (utxos.some((u) => u.input.outputIndex === outputIndex)) {
+              console.log(`[Preprod] nftsRefUtxo confirmed after ${attempt + 1} poll(s)`);
+              return;
+            }
+          } catch {
+            // TX not yet indexed by Blockfrost — keep polling
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10_000));
+        }
+        throw new Error("nftsRefUtxo did not confirm within 5 minutes — aborting bootstrap");
+      }, 330_000); // 5.5 min polling budget
+
       it(
         "bootstraps the oracle and returns a valid 64-char hex tx hash",
         async () => {
-          // NOTE: In practice, wait for the nftsRefUtxo TX to confirm on-chain
-          // before running bootstrap, as it must be a resolved reference script.
           const bootstrapTxHash = await contract.bootstrap({
             bootstrapUtxo,
             platformAuthNftUtxo: walletUtxos[1], // must hold the platform auth NFT

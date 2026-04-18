@@ -40,28 +40,49 @@ export async function deployScripts(params: DeployScriptsParams): Promise<Deploy
       u.input.outputIndex !== bootstrapUtxoRef.outputIndex
   );
 
+  // Pick two distinct inputs — one per transaction — sorted descending by
+  // lovelace so each TX gets a UTxO large enough to cover the deposit + fees.
+  // Using explicit .txIn() avoids the shared-state accumulation bug in
+  // MeshTxBuilder where selectUtxosFrom() appends across calls rather than
+  // replacing, causing the coin selector to hit its maximum input count.
+  const sorted = [...availableUtxos].sort((a, b) => {
+    const lovelace = (u: UTxO) =>
+      BigInt(u.output.amount.find((x) => x.unit === "lovelace")?.quantity ?? "0");
+    return lovelace(a) < lovelace(b) ? 1 : -1;
+  });
+
+  if (sorted.length < 2) {
+    throw new Error(
+      "deployScripts requires at least 2 spendable UTxOs (excluding the bootstrap UTxO). " +
+      "Split your wallet into more UTxOs before deploying."
+    );
+  }
+
+  const input1 = sorted[0];
+  const input2 = sorted[1];
+
   // Deploy manager
   const tx1Hex = await meshBuilder
+    .txIn(input1.input.txHash, input1.input.outputIndex, input1.output.amount, input1.output.address)
     .txOut(targetAddress, [{ unit: "lovelace", quantity: minLovelace }])
     .txOutReferenceScript(manager.script.code, "V3")
     .changeAddress(changeAddress)
-    .selectUtxosFrom(availableUtxos)
     .txInCollateral(collateral.input.txHash, collateral.input.outputIndex)
     .complete();
 
   const signedTx1 = await wallet.signTx(tx1Hex);
   const managerRefTxHash = await wallet.submitTx(signedTx1);
 
-  // Deploy NFTs policy
-  // Note: For a real library, the user might need to wait for TX1 to confirm 
-  // before running TX2 if they don't have enough other UTxOs.
-  // We'll leave the sequential logic to the CharlieContract wrapper or user.
-  
+  // complete() does not reset builder state — accumulated inputs from TX1 would
+  // cause TX2 to hit the coin selector's maximum input count. Reset explicitly.
+  meshBuilder.reset();
+
+  // Deploy NFTs policy — uses a different input so it never double-spends TX1
   const tx2Hex = await meshBuilder
+    .txIn(input2.input.txHash, input2.input.outputIndex, input2.output.amount, input2.output.address)
     .txOut(targetAddress, [{ unit: "lovelace", quantity: minLovelace }])
     .txOutReferenceScript(nfts.script.code, "V3")
     .changeAddress(changeAddress)
-    .selectUtxosFrom(availableUtxos) // Re-use available
     .txInCollateral(collateral.input.txHash, collateral.input.outputIndex)
     .complete();
 
