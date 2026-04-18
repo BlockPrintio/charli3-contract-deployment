@@ -1,6 +1,6 @@
 {
   "name": "@blockprint/charli3-contract-deployment",
-  "version": "0.0.2-beta",
+  "version": "0.0.0-beta",
   "description": "Professional TypeScript library for deploying and managing Charli3 Pull Oracle contracts.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
