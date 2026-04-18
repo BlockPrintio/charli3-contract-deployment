@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+.npm
+.pnpm-store
+
+# Build output
+dist/
+lib-dist/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Debug logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.vitest
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.bak
+deploy.json

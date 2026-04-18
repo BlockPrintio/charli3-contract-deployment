@@ -1,0 +1,27 @@
+{
+  "name": "@blockprint/charli3-contract-deployment",
+  "version": "0.0.1-beta",
+  "description": "Professional TypeScript library for deploying and managing Charli3 Pull Oracle contracts.",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsx example/index.ts",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@meshsdk/core": "^1.9.0-beta.102",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.2",
+    "vitest": "^1.3.1"
+  }
+}
